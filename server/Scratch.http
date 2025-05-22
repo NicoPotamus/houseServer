@@ -1,0 +1,20 @@
+###
+POST http://localhost:3000/files/
+Content-Type: multipart/form-data; boundary=MyBoundary
+
+--MyBoundary
+Content-Disposition: form-data; name="file"; filename="Project_states_FSM.pdf"
+Content-Type: application/pdf
+
+@file=@C:\Users\NicoD\repos\houseServer\server\Project_states_FSM.pdf
+--MyBoundary--
+
+###
+DELETE http://localhost:3000/files/delete/Project_states_FSM.pdf
+
+###
+GET http://localhost:3000/files/download/thumbnails/Project_states_FSM.pdf
+Accept: application/pdf
+
+###
+GET http://localhost:3000/files/?folderPath=thumbnails
