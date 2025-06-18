@@ -1,6 +1,9 @@
 # Use the official Node.js image as the base image
 FROM node:18
 
+# Install FFmpeg (includes ffprobe)
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+
 # Set the working directory inside the container
 WORKDIR /usr/src/app
 
@@ -15,6 +18,7 @@ RUN npm rebuild bcrypt --build-from-source
 
 # Copy the rest of the application code
 COPY . .
+RUN npm run build
 
 # Expose the port your application runs on
 EXPOSE 3000

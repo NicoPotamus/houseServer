@@ -17,3 +17,21 @@ export interface LoginRequestBody {
     password: string;
 }
 
+export interface MulterRequest extends Request {
+    file?: Express.Multer.File;
+}
+
+export interface MachineIdentifier {
+    type: 'serial' | 'mac' | 'container';
+    value: string;
+}
+
+export interface TunnelResponse {
+    success: boolean;
+    data: {
+        configYml: string;
+        tunnelJsonBase64: string;
+        hostname: string;
+        tunnelId: string;
+    };
+}

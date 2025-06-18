@@ -2,42 +2,114 @@ import fs from 'fs';
 import path from 'path';
 const BASE_DIR = path.resolve('server/disk');
 console.log('streamer functions loaded');
-// Stream a file (e.g., video)
-export const streamFile = async (req, res) => {
-    const filePath = req.params.filePath || '';
-    const fullPath = path.join(BASE_DIR, filePath);
-    if (!fs.existsSync(fullPath)) {
-        res.status(404).json({ message: 'File not found' });
-        return;
-    }
-    const stat = fs.statSync(fullPath);
-    const fileSize = stat.size;
-    const range = req.headers.range;
-    if (range) {
-        const parts = range.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-        if (start >= fileSize || end >= fileSize) {
-            res.status(416).json({ message: 'Requested range not satisfiable' });
-            return;
-        }
-        const chunkSize = end - start + 1;
-        const file = fs.createReadStream(fullPath, { start, end });
-        const headers = {
-            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+// View functions
+export function viewPDF(fullPath, res) {
+    streamWithHeaders(fullPath, res, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline'
+    });
+}
+export function viewImage(fullPath, res) {
+    const ext = path.extname(fullPath).toLowerCase();
+    const contentType = ext === '.png' ? 'image/png' : 'image/jpeg';
+    streamWithHeaders(fullPath, res, {
+        'Content-Type': contentType,
+        'Content-Disposition': 'inline'
+    });
+}
+export function streamFile(fullPath, res, mimeType = 'video/mp4') {
+    const ext = path.extname(fullPath).toLowerCase();
+    const mimeTypes = {
+        '.mkv': 'video/webm',
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.avi': 'video/x-msvideo'
+    };
+    const actualMimeType = mimeTypes[ext] || mimeType;
+    streamWithHeaders(fullPath, res, {
+        'Content-Type': actualMimeType,
+        'Content-Disposition': 'inline'
+    });
+}
+// Download functions
+export function forceDownloadPDF(fullPath, res) {
+    streamWithHeaders(fullPath, res, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${path.basename(fullPath)}"`
+    });
+}
+export function forceDownloadImage(fullPath, res) {
+    const ext = path.extname(fullPath).toLowerCase();
+    const contentType = ext === '.png' ? 'image/png' : 'image/jpeg';
+    streamWithHeaders(fullPath, res, {
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="${path.basename(fullPath)}"`
+    });
+}
+export function forceDownloadStream(fullPath, res, mimeType = 'application/octet-stream') {
+    const ext = path.extname(fullPath).toLowerCase();
+    const mimeTypes = {
+        '.mkv': 'video/webm',
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.avi': 'video/x-msvideo'
+    };
+    const actualMimeType = mimeTypes[ext] || mimeType;
+    streamWithHeaders(fullPath, res, {
+        'Content-Type': actualMimeType,
+        'Content-Disposition': `attachment; filename="${path.basename(fullPath)}"`
+    });
+}
+// Helper function to handle streaming with headers
+function streamWithHeaders(fullPath, res, headers) {
+    try {
+        const stat = fs.statSync(fullPath);
+        const range = res.req.headers.range;
+        // Add common headers for better mobile compatibility
+        const commonHeaders = {
+            ...headers,
             'Accept-Ranges': 'bytes',
-            'Content-Length': chunkSize,
-            'Content-Type': 'video/mp4',
+            'Cache-Control': 'no-cache',
+            'Cross-Origin-Resource-Policy': 'cross-origin',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
         };
-        res.writeHead(206, headers);
-        file.pipe(res);
+        if (range) {
+            const parts = range.replace(/bytes=/, '').split('-');
+            const start = parseInt(parts[0], 10);
+            const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+            if (start >= stat.size || end >= stat.size) {
+                res.status(416).json({ message: 'Requested range not satisfiable' });
+                return;
+            }
+            const chunkSize = end - start + 1;
+            const stream = fs.createReadStream(fullPath, { start, end });
+            res.writeHead(206, {
+                ...commonHeaders,
+                'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+                'Content-Length': chunkSize,
+            });
+            stream.pipe(res);
+        }
+        else {
+            res.writeHead(200, {
+                ...commonHeaders,
+                'Content-Length': stat.size,
+            });
+            fs.createReadStream(fullPath)
+                .on('error', (error) => {
+                console.error("Error streaming file:", error);
+                if (!res.headersSent) {
+                    res.status(500).end();
+                }
+            })
+                .pipe(res);
+        }
     }
-    else {
-        const headers = {
-            'Content-Length': fileSize,
-            'Content-Type': 'video/mp4',
-        };
-        res.writeHead(200, headers);
-        fs.createReadStream(fullPath).pipe(res);
+    catch (error) {
+        console.error("Error handling stream:", error);
+        if (!res.headersSent) {
+            res.status(500).end();
+        }
     }
-};
+}

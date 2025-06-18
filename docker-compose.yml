@@ -1,6 +1,8 @@
+version: '3.8'
 
 services:
   db:
+    container_name: house-db
     image: postgres:15
     restart: always
     environment:
@@ -8,21 +10,65 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: house_db
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5433:5432"  # Changed from 5432 to avoid conflict
     volumes:
       - ./database/init:/docker-entrypoint-initdb.d
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
 
   house-server:
+    container_name: house-server
     build:
       context: ./server
       dockerfile: dockerfile
     ports:
-      - "3000:3000"
+      - "0.0.0.0:3000:3000"
     volumes:
-      - C:\Users\NicoD\Desktop\temp:/usr/src/app/server/disk
+      - C:\Users\NicoD\Desktop\temp:/usr/src/app/disk
+      - ./.env:/usr/src/app/.env
+      - cloudflared-config:/usr/src/app/dist/cloudflaredConf
     depends_on:
       - db
+    networks:
+      - internal
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+      - CERT_PATH=${CERT_PATH}
+      - BASE_URL=${BASE_URL}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /usr/src/app/dist/cloudflaredConf/tunnel.json && test -f /usr/src/app/dist/cloudflaredConf/config.yml"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cloudflared:
+    container_name: house-cloudflared
+    image: cloudflare/cloudflared:latest
+    init: true
+    restart: unless-stopped
+    stop_signal: SIGINT
+    stop_grace_period: 60s
+    command: tunnel --protocol http2 --no-autoupdate run
+    environment:
+      - TUNNEL_LOGLEVEL=debug
+      - TUNNEL_TRANSPORT_PROTOCOL=http2
+      - TUNNEL_ORIGIN_PROTOCOL=http2
+    volumes:
+      - cloudflared-config:/etc/cloudflared
+    networks:
+      - internal
+    depends_on:
+      house-server:
+        condition: service_healthy
+
+networks:
+  internal:
+    driver: bridge
 
 volumes:
   postgres_data:
+  cloudflared-config:

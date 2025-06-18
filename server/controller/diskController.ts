@@ -11,14 +11,11 @@ import {
   generateVideoPreview,
 } from "./thumbnailGenerator.js";
 import { fileTypeFromBuffer } from "file-type";
-
-// Extend the Request interface to include the 'file' property
-interface MulterRequest extends Request {
-  file?: Express.Multer.File;
-}
+import { viewPDF, viewImage, streamFile, forceDownloadPDF, forceDownloadImage, forceDownloadStream } from "./streamer.js";
+import { MulterRequest } from "../model/types.js";
 
 // Base directory for the mounted Docker volume
-const BASE_DIR = "/usr/src/app/server/disk";
+const BASE_DIR = "/usr/src/app/disk";
 
 // List files in a directory
 export const listFiles = async (req: Request, res: Response): Promise<void> => {
@@ -140,47 +137,6 @@ export const uploadFile = async (
   }
 };
 
-// Download a file
-export const downloadFile = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const filePath = req.params.filePath || "";
-    const fullPath = path.join(BASE_DIR, filePath);
-
-    if (!fs.existsSync(fullPath)) {
-      res.status(404).json({ message: "File not found" });
-      return;
-    }
-
-    // Detect file type
-    //const mimeType = mime.lookup(fullPath) || 'application/octet-stream';
-
-    // Set appropriate headers
-    // res.setHeader('Content-Type', mimeType);
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${path.basename(fullPath)}"`
-    );
-
-    // Send the actual file content instead of the file path
-    res.sendFile(fullPath, (err) => {
-      if (err) {
-        console.error("Error sending file:", err);
-        res.status(500).json({ message: "Error downloading file" });
-      }
-    });
-  } catch (error) {
-    console.error("Error downloading file:", error);
-    res
-      .status(500)
-      .json({
-        message: "Error downloading file",
-        error: (error as Error).message,
-      });
-  }
-};
 
 // Delete a file or folder
 export const deleteItem = async (
@@ -217,77 +173,41 @@ export const deleteItem = async (
 };
 
 // View a file
-export const viewFile = async (req: Request, res: Response): Promise<void> => {
+export const viewFile = (req: Request, res: Response): void => {
     console.log("viewFile called with filePath:", req.params.filePath);
     try {
         const filePath = req.params.filePath || "";
         const fullPath = path.join(BASE_DIR, filePath);
+        const forceDownload = req.query.download === 'true';
 
         if (!fs.existsSync(fullPath)) {
             res.status(404).json({ message: "File not found" });
             return;
         }
 
-        // Get file extension and set content type
-        const ext = path.extname(fullPath).toLowerCase();
-        if (ext === '.pdf') {
-            res.set({
-                'Content-Type': 'application/pdf',
-                'Content-Disposition': 'inline',
-                'Content-Transfer-Encoding': 'binary',
-                'Accept-Ranges': 'bytes'
-            });
+        console.log("File extension:", path.extname(fullPath).toLowerCase(), "Download:", forceDownload);
+        
+        switch (path.extname(fullPath).toLowerCase()) {
+            case ".pdf": 
+                forceDownload ? forceDownloadPDF(fullPath, res) : viewPDF(fullPath, res);
+                break;
+            case ".jpg":
+            case ".jpeg":
+            case ".png":
+                forceDownload ? forceDownloadImage(fullPath, res) : viewImage(fullPath, res);
+                break;
+            case ".mp4":
+            case ".webm":
+            case ".mkv":
+                forceDownload ? forceDownloadStream(fullPath, res, 'video/mp4') : streamFile(fullPath, res, 'video/mp4');
+                break;
+            default:
+                forceDownloadStream(fullPath, res, 'application/octet-stream');
+                break;
         }
-
-        // Use sendFile with root option
-        const options = {
-            root: BASE_DIR,
-            dotfiles: "deny" as "deny", // Ensure the value matches the expected type
-            headers: {
-                'x-timestamp': Date.now(),
-                'x-sent': true
-            }
-        };
-
-        res.sendFile(filePath, options, (err) => {
-            if (err) {
-                console.error("Error sending file:", err);
-                res.status(500).end();
-            }
-        });
-
     } catch (error) {
-        console.error("Error in viewFile:", error);
+        console.error("Error viewing file:", error);
         res.status(500).end();
     }
 };
 
-// Test endpoint for serving specific PDF
-export const testPDF = async (req: Request, res: Response): Promise<void> => {
-    try {
-        console.log("Query parameters received:", req.query);
-        const testFilePath = req.query.filepath as string;
-        
-        if (!testFilePath) {
-            console.log("No filepath provided in query");
-            res.status(400).json({ message: "No filepath provided" });
-            return;
-        }
-
-        const fullPath = path.join(BASE_DIR, testFilePath);
-        console.log("Full path constructed:", fullPath);
-        console.log("File exists:", fs.existsSync(fullPath));
-        
-        if (!fs.existsSync(fullPath)) {
-            res.status(404).json({ message: "Test PDF not found" });
-            return;
-        }
-
-        res.setHeader('Content-Type', 'application/pdf');
-        fs.createReadStream(fullPath).pipe(res);
-
-    } catch (error) {
-        console.error("Error serving test PDF:", error);
-        res.status(500).end();
-    }
-};
