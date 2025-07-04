@@ -1,18 +1,19 @@
--- Create users table
-CREATE TABLE users (
+-- 01-init.sql: Create users table for authentication and storage
+
+CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    name VARCHAR(255),
     email VARCHAR(255) NOT NULL UNIQUE,
-    storage_quota BIGINT NOT NULL DEFAULT 1073741824, -- Default 1GB in bytes
-    files JSONB,  -- Stores file metadata as JSON
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    password VARCHAR(255) NOT NULL,
+    storage_quota BIGINT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create an index on email for faster lookups
-CREATE INDEX users_email_idx ON users(email);
+-- Index for fast email lookup
+CREATE INDEX IF NOT EXISTS users_email_idx ON users(email);
 
--- Create a trigger to automatically update the updated_at timestamp
+-- Trigger to update updated_at on row update
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN

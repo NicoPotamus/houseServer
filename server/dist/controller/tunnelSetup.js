@@ -1,10 +1,14 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import fetch from 'node-fetch';
 import yaml from 'yaml';
-import '../config.ts';
+// Fix for ES module: Get __dirname equivalent
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const BASE_URL = process.env.BASE_URL;
-const CLOUDFLARED_DIR = path.join(process.cwd(), '..', 'cloudflaredConf');
+const CLOUDFLARED_DIR = path.join(__dirname, '../cloudflaredConf');
+console.log(`CLOUDFLARED_DIR: ${CLOUDFLARED_DIR}`);
 export async function setupTunnel() {
     try {
         // Ensure cloudflared directory exists
@@ -24,6 +28,7 @@ export async function setupTunnel() {
         if (!tunnelData.success) {
             throw new Error('Failed to get tunnel configuration');
         }
+        console.log('Tunnel configuration fetched successfully:', tunnelData);
         // Parse the YAML to modify it
         const config = yaml.parse(tunnelData.data.configYml);
         // Update the config
@@ -42,8 +47,12 @@ export async function setupTunnel() {
         // Decode and write tunnel credentials
         const tunnelJsonPath = path.join(CLOUDFLARED_DIR, 'tunnel.json');
         const credentialsBuffer = Buffer.from(tunnelData.data.tunnelJsonBase64, 'base64');
+        console.log('json content:', credentialsBuffer.toString('utf8'));
         fs.writeFileSync(tunnelJsonPath, credentialsBuffer);
         console.log('Generated tunnel.json');
+        // Log the directory's contents
+        const files = fs.readdirSync(CLOUDFLARED_DIR);
+        console.log('Files in CLOUDFLARED_DIR:', files);
         console.log('Tunnel setup completed successfully');
     }
     catch (error) {

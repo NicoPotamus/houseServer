@@ -18,3 +18,25 @@ Accept: application/pdf
 
 ###
 GET http://localhost:3000/files/?folderPath=thumbnails
+
+###
+GET http://172.24.80.1:4000/device-id
+
+###
+PUT http://localhost:8080/account/1
+Content-Type: application/json
+
+{
+  "name": "New Name",
+  "email": "newemail@example.com"
+}
+
+###
+POST http://localhost:8080/pairDeviceById
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "deviceId": "new-device-id-123"
+}
+

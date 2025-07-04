@@ -7,7 +7,7 @@ import path from "path";
 import { generateImageThumbnail, generateVideoPreview, } from "./thumbnailGenerator.js";
 import { viewPDF, viewImage, streamFile, forceDownloadPDF, forceDownloadImage, forceDownloadStream } from "./streamer.js";
 // Base directory for the mounted Docker volume
-const BASE_DIR = "/usr/src/app/server/disk";
+const BASE_DIR = "/usr/src/app/disk";
 // List files in a directory
 export const listFiles = async (req, res) => {
     console.log("listFiles called with folderPath:", req.query.folderPath);

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     container_name: house-db
@@ -23,11 +21,11 @@ services:
       context: ./server
       dockerfile: dockerfile
     ports:
-      - "0.0.0.0:3000:3000"
+      - "3000:3000"
+      - "4000:4000"   # <-- Add this line to expose port 4000
     volumes:
       - C:\Users\NicoD\Desktop\temp:/usr/src/app/disk
       - ./.env:/usr/src/app/.env
-      - cloudflared-config:/usr/src/app/dist/cloudflaredConf
     depends_on:
       - db
     networks:
@@ -39,31 +37,42 @@ services:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
       - CERT_PATH=${CERT_PATH}
       - BASE_URL=${BASE_URL}
-    healthcheck:
-      test: ["CMD", "sh", "-c", "test -f /usr/src/app/dist/cloudflaredConf/tunnel.json && test -f /usr/src/app/dist/cloudflaredConf/config.yml"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
-  cloudflared:
-    container_name: house-cloudflared
-    image: cloudflare/cloudflared:latest
-    init: true
-    restart: unless-stopped
-    stop_signal: SIGINT
-    stop_grace_period: 60s
-    command: tunnel --protocol http2 --no-autoupdate run
+  signaler:
+    container_name: house-signaler
+    build:
+      context: ./signaler
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
     environment:
-      - TUNNEL_LOGLEVEL=debug
-      - TUNNEL_TRANSPORT_PROTOCOL=http2
-      - TUNNEL_ORIGIN_PROTOCOL=http2
-    volumes:
-      - cloudflared-config:/etc/cloudflared
+      - NODE_ENV=production
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=house_db
+    depends_on:
+      - db
+    networks:
+      - internal
+    restart: unless-stopped
+
+  house-client:
+    container_name: house-client
+    build:
+      context: ./houseClient
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - NODE_ENV=development
+      - EXPO_PUBLIC_API_BASE_URL=http://localhost:8080
     networks:
       - internal
     depends_on:
-      house-server:
-        condition: service_healthy
+      - signaler
+    restart: unless-stopped
 
 networks:
   internal:
@@ -71,4 +80,6 @@ networks:
 
 volumes:
   postgres_data:
-  cloudflared-config:
+  ## make another table in db
+  ## fix signaler to access db correctly
+  ## ensure everything is passed around
