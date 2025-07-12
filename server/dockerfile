@@ -12,10 +12,22 @@ RUN npm install
 
 # Copy the rest of the application code
 COPY . .
-RUN npm run build
 
-# Expose the port your application runs on
+# Make sure the TypeScript compiler includes webrtcAPI.ts
+RUN echo "Building server with TypeScript..."
+RUN npm run build
+# Verify the compiled files
+RUN ls -la dist/controller/
+
+# Expose the ports your application runs on
 EXPOSE 3000
+EXPOSE 4000
+
+# Add entrypoint script for healthcheck and service dependency
+RUN chmod +x ./docker-entrypoint.sh
+
+# Use entrypoint for health check and dependency waiting
+ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # Start the application
 CMD ["npm", "start"]

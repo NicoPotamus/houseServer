@@ -2,15 +2,14 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
 import { useEffect } from 'react';
+import 'react-native-reanimated';
 
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { DeviceProvider, useDevice } from '../context/DeviceContext';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { fileService } from '../services/fileService';
-import AuthScreen from './auth';
 import DevicesScreen from './(tabs)/devices';
+import AuthScreen from './auth';
 
 // Only enable URL configuration in development
 const isDev = process.env.NODE_ENV === 'development';
@@ -24,10 +23,13 @@ function MainLayout() {
   });
 
   useEffect(() => {
+    // Base URL setting is no longer needed since all file operations 
+    // now use WebRTC instead of HTTP requests
     if (isDev) {
-      // You can change this URL during development
-      const devApiUrl = 'a5a5222e-4637-4383-bc7b-2514fc752d11.niconet.tech'; // Replace with your local IP when needed
-      fileService.setBaseUrl(devApiUrl);
+      console.log('Development mode: All file operations use WebRTC, no HTTP base URL needed');
+      // Legacy HTTP base URL code removed - file operations now use WebRTC data channel
+      // const devApiUrl = 'a5a5222e-4637-4383-bc7b-2514fc752d11.niconet.tech';
+      // fileService.setBaseUrl(devApiUrl);
     }
   }, []);
 

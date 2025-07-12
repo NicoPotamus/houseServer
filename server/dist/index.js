@@ -5,10 +5,9 @@ import { getImageThumbnail, getVideoPreview } from './controller/thumbnailGenera
 import multer from 'multer';
 import path from 'path';
 import os from 'os';
-import WebSocket from 'ws';
 import fs from 'fs';
-import wrtc from 'wrtc';
 import { startWebRTCSignaling } from './controller/webrtcController.js';
+import { testRouter } from './test/testRoutes.js';
 const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
 // Set up multer for file uploads
@@ -23,7 +22,7 @@ app.use((req, res, next) => {
 });
 // Configure CORS
 const corsOptions = {
-    origin: 'http://192.168.1.171:8081', // Explicitly allow React app's origin
+    origin: 'http://localhost:8081', // Explicitly allow React app's origin
     methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept'],
     exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length', 'Content-Type'],
@@ -41,136 +40,36 @@ app.post('/files/:folderPath?', upload.single('file'), uploadFile);
 app.get('/files/:filePath/image-preview', getImageThumbnail);
 app.get('/files/:filePath/video-preview', getVideoPreview);
 app.get('/files/:folderPath?', listFiles);
-// --- WebSocket client to connect to signaler and get signalerId ---
-const SIGNALER_WS_URL = process.env.SIGNALER_WS_URL || 'ws://signaler:8080';
-let signalerId = null;
-let peerConnection = null;
-let ws = null;
-const ICE_SERVERS = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    // Add TURN servers here if needed
-];
-function connectToSignalerAndSaveId() {
-    ws = new WebSocket(SIGNALER_WS_URL);
-    ws.on('open', () => {
-        console.log('Connected to signaler for device registration');
-    });
-    ws.on('message', async (data) => {
-        try {
-            const msg = JSON.parse(data.toString());
-            if (msg.type === 'signaler-id' && msg.signalerId) {
-                signalerId = msg.signalerId;
-                if (signalerId) {
-                    saveDeviceJson(signalerId);
-                }
-                if (signalerId) {
-                    fs.writeFileSync('/usr/src/app/signalId.txt', signalerId); // Save to file (legacy)
-                }
-                else {
-                    console.error('signalerId is null, cannot save to file');
-                }
-                console.log('Received and saved signalerId:', signalerId);
-                // TODO: Broadcast over Bluetooth here
-            }
-            else if (msg.type === 'get-ice-config') {
-                // Respond to signaler with ICE config
-                ws?.send(JSON.stringify({
-                    type: 'ice-config',
-                    target: msg.from,
-                    payload: { iceServers: ICE_SERVERS },
-                }));
-            }
-            else if (msg.type === 'offer') {
-                // Received offer from client, create peer connection and respond
-                await handleOffer(msg);
-            }
-            else if (msg.type === 'answer') {
-                // Received answer from client
-                await handleAnswer(msg);
-            }
-            else if (msg.type === 'ice-candidate') {
-                // Received ICE candidate from client
-                await handleRemoteIceCandidate(msg);
-            }
-        }
-        catch (e) {
-            console.error('Error parsing message from signaler:', e);
-        }
-    });
-    ws.on('close', () => {
-        console.log('Signaler connection closed, retrying in 5s...');
-        setTimeout(connectToSignalerAndSaveId, 5000);
-    });
-    ws.on('error', (err) => {
-        console.error('Signaler connection error:', err);
-    });
-}
-async function handleOffer(msg) {
-    if (peerConnection) {
-        peerConnection.close();
-    }
-    peerConnection = new wrtc.RTCPeerConnection({ iceServers: ICE_SERVERS });
-    peerConnection.onicecandidate = (event) => {
-        if (event.candidate && ws && msg.from) {
-            ws.send(JSON.stringify({
-                type: 'ice-candidate',
-                target: msg.from,
-                payload: { candidate: event.candidate },
-            }));
-        }
-    };
-    peerConnection.onconnectionstatechange = () => {
-        console.log('Peer connection state:', peerConnection?.connectionState);
-    };
-    await peerConnection.setRemoteDescription(msg.payload.offer);
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-    // Send answer back to client
-    ws?.send(JSON.stringify({
-        type: 'answer',
-        target: msg.from,
-        payload: { answer },
-    }));
-}
-async function handleAnswer(msg) {
-    if (peerConnection) {
-        await peerConnection.setRemoteDescription(msg.payload.answer);
-    }
-}
-async function handleRemoteIceCandidate(msg) {
-    if (peerConnection && msg.payload && msg.payload.candidate) {
-        try {
-            await peerConnection.addIceCandidate(new wrtc.RTCIceCandidate(msg.payload.candidate));
-        }
-        catch (e) {
-            console.error('Error adding remote ICE candidate:', e);
-        }
-    }
-}
-connectToSignalerAndSaveId();
+// Test routes for WebRTC testing
+app.use(testRouter);
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+// --- Import needed controllers ---
+// WebRTC signaling is now handled entirely by webrtcController.js
+// No duplicate connection code here
+// Import signalerId and saveDeviceJson from the webrtcController
+import { signalerId } from './controller/webrtcController.js';
 // --- Save signalerId and device info to device.json ---
-function saveDeviceJson(id) {
-    const deviceInfo = {
-        signalerId: id,
-        createdAt: new Date().toISOString(),
-        // Add more device metadata here if needed
-    };
-    fs.writeFileSync('/usr/src/app/device.json', JSON.stringify(deviceInfo, null, 2));
-    console.log('Saved device.json:', deviceInfo);
-}
+// We're now using the saveDeviceJson from webrtcController.js
 // --- Local web server to serve signalerId for onboarding ---
 const onboardingPort = 4000;
 app.get('/device-id', (req, res) => {
     try {
+        console.log('[DEBUG] /device-id endpoint called');
         const id = signalerId || (fs.existsSync('/usr/src/app/signalId.txt') ? fs.readFileSync('/usr/src/app/signalId.txt', 'utf8') : null);
+        console.log('[DEBUG] signalerId:', signalerId);
         if (id) {
             res.json({ signalerId: id });
         }
         else {
+            console.error('[DEBUG] signalerId not available yet');
             res.status(404).json({ error: 'signalerId not available yet' });
         }
     }
     catch (e) {
+        console.error('[DEBUG] Failed to read signalerId:', e);
         res.status(500).json({ error: 'Failed to read signalerId' });
     }
 });
@@ -181,11 +80,12 @@ app.listen(onboardingPort, '0.0.0.0', () => {
 // Initialize tunnel before starting server
 async function initializeServer() {
     try {
-        // Setup tunnel configuration
-        console.log('Tunnel configuration completed');
         const host = getLocalIPAddress();
-        app.listen(port, host, () => {
-            console.log(`Server running and accessible at http://${host}:${port}`);
+        // Listen on both localhost and the detected IP
+        app.listen(port, '0.0.0.0', () => {
+            console.log(`Server running on all interfaces:`);
+            console.log(`  - Local: http://localhost:${port}`);
+            console.log(`  - Network: http://${host}:${port}`);
         });
     }
     catch (error) {
@@ -203,6 +103,126 @@ function getLocalIPAddress() {
         }
     }
     throw new Error('Unable to detect local IP address');
+}
+/**
+ * Handle messages received on the data channel.
+ * This function allows accessing server API endpoints over WebRTC.
+ */
+async function handleDataChannelMessage(dataChannel, data, clientId) {
+    console.log(`Received data channel message from client ${clientId}`);
+    // Parse the message
+    try {
+        const message = typeof data === 'string' ? JSON.parse(data) : JSON.parse(data.toString());
+        // Check if this is an API request
+        if (message.type === 'request') {
+            await handleApiRequest(dataChannel, message, clientId);
+        }
+        else {
+            console.log('Received unknown message type:', message);
+        }
+    }
+    catch (error) {
+        console.error('Error handling data channel message:', error);
+        // If we have a request ID, send an error response
+        if (typeof data === 'string' && data.includes('"id":')) {
+            try {
+                const parsed = JSON.parse(data);
+                if (parsed.id) {
+                    sendWebRTCResponse(dataChannel, parsed.id, null, {
+                        message: 'Error processing request',
+                        error: error.message
+                    });
+                }
+            }
+            catch (e) {
+                // Ignore parsing errors for error handling
+            }
+        }
+    }
+}
+/**
+ * Handle API requests from clients by routing them to Express endpoints
+ */
+async function handleApiRequest(dataChannel, request, clientId) {
+    const { id, endpoint, method, params } = request;
+    console.log(`API Request #${id}: ${method} ${endpoint}`);
+    try {
+        let result;
+        // Route the request based on endpoint
+        if (endpoint.startsWith('/files')) {
+            // Handle file-related endpoints
+            if (endpoint === '/files' || endpoint.match(/^\/files\/[^\/]+$/)) {
+                // List files in a directory
+                const folderPath = params?.folderPath || '';
+                // Create a fake request/response to reuse the existing controller
+                const req = {
+                    query: { folderPath },
+                    params: {},
+                    headers: {},
+                    get: () => null
+                };
+                let responseData = null;
+                const res = {
+                    json: (data) => { responseData = data; },
+                    status: (code) => ({
+                        json: (data) => { responseData = { ...data, statusCode: code }; }
+                    }),
+                    send: (data) => { responseData = data; },
+                    sendStatus: () => { },
+                    setHeader: () => { }
+                };
+                // Call the listFiles controller directly
+                await new Promise(resolve => {
+                    // @ts-ignore: We know listFiles exists
+                    listFiles(req, res, resolve);
+                });
+                result = responseData;
+            }
+            else if (endpoint.startsWith('/files/view/')) {
+                // File viewing endpoint
+                const filePath = endpoint.replace('/files/view/', '');
+                result = {
+                    url: `http://${getLocalIPAddress()}:${port}/files/view/${filePath}`,
+                    message: 'Access file directly through URL'
+                };
+            }
+        }
+        else if (endpoint === '/device-info') {
+            // Return device information
+            result = {
+                signalerId,
+                hostname: os.hostname(),
+                platform: os.platform(),
+                arch: os.arch(),
+                uptime: os.uptime()
+            };
+        }
+        else {
+            // For unsupported endpoints, provide an error
+            throw new Error(`Unsupported endpoint: ${endpoint}`);
+        }
+        // Send the response back to the client
+        sendWebRTCResponse(dataChannel, id, result);
+    }
+    catch (error) {
+        console.error(`Error handling API request to ${endpoint}:`, error);
+        sendWebRTCResponse(dataChannel, id, null, {
+            message: 'Error processing request',
+            error: error.message
+        });
+    }
+}
+/**
+ * Send a response back to the client over WebRTC
+ */
+function sendWebRTCResponse(dataChannel, id, result = null, error = null) {
+    const response = {
+        type: 'response',
+        id,
+        result,
+        error
+    };
+    dataChannel.send(JSON.stringify(response));
 }
 startWebRTCSignaling();
 initializeServer();

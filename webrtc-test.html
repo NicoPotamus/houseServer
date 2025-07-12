@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Test Client</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .status-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .status.success { background: rgba(40, 167, 69, 0.3); border-left: 4px solid #28a745; }
+        .status.error { background: rgba(220, 53, 69, 0.3); border-left: 4px solid #dc3545; }
+        .status.warning { background: rgba(255, 193, 7, 0.3); border-left: 4px solid #ffc107; color: #000; }
+        .status.info { background: rgba(23, 162, 184, 0.3); border-left: 4px solid #17a2b8; }
+        
+        button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+        button:disabled {
+            background: rgba(108, 117, 125, 0.5);
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .log {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .config-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        input {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 10px;
+            color: white;
+            font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 WebRTC Test Client</h1>
+        
+        <div class="config-section">
+            <div>
+                <label>Server Device ID:</label>
+                <input type="text" id="serverDeviceId" value="16255138-096d-4319-885f-16ee20341de8" readonly>
+            </div>
+            <div>
+                <label>Signaler URL:</label>
+                <input type="text" id="signalerUrl" value="ws://localhost:8080">
+            </div>
+        </div>
+        
+        <div class="status-section">
+            <h3>🔗 Connection Status</h3>
+            <div id="signalerStatus" class="status info">Not connected</div>
+            <div id="webrtcStatus" class="status info">Not connected</div>
+            <div id="dataChannelStatus" class="status info">Not open</div>
+        </div>
+        
+        <div style="text-align: center; margin: 20px 0;">
+            <button onclick="startTest()" id="startBtn">🚀 Start WebRTC Test</button>
+            <button onclick="runAPITests()" id="apiTestBtn" disabled>🧪 Run API Tests</button>
+            <button onclick="clearLog()" id="clearBtn">🧹 Clear Log</button>
+        </div>
+        
+        <div class="test-grid">
+            <div class="status-section">
+                <h3>📊 Test Results</h3>
+                <div id="testResults">
+                    <div>Tests completed: <span id="completedCount">0</span></div>
+                    <div>Tests passed: <span id="passedCount">0</span></div>
+                    <div>Tests failed: <span id="failedCount">0</span></div>
+                </div>
+            </div>
+            
+            <div class="status-section">
+                <h3>📝 Activity Log</h3>
+                <div class="log" id="log">Ready to start testing...\n</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let pc = null;
+        let dataChannel = null;
+        let clientId = `browser-client-${Date.now()}`;
+        let testStats = { completed: 0, passed: 0, failed: 0 };
+        
+        function log(message, type = 'info') {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            logElement.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function updateStatus(elementId, message, statusClass) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${statusClass}`;
+        }
+        
+        function updateTestStats() {
+            document.getElementById('completedCount').textContent = testStats.completed;
+            document.getElementById('passedCount').textContent = testStats.passed;
+            document.getElementById('failedCount').textContent = testStats.failed;
+        }
+        
+        async function startTest() {
+            const startBtn = document.getElementById('startBtn');
+            startBtn.disabled = true;
+            startBtn.textContent = '🔄 Connecting...';
+            
+            testStats = { completed: 0, passed: 0, failed: 0 };
+            updateTestStats();
+            
+            log('Starting WebRTC test client...');
+            log(`Client ID: ${clientId}`);
+            
+            await connectToSignaler();
+        }
+        
+        async function connectToSignaler() {
+            const signalerUrl = document.getElementById('signalerUrl').value;
+            log(`Connecting to signaler: ${signalerUrl}`);
+            
+            ws = new WebSocket(signalerUrl);
+            
+            ws.onopen = () => {
+                log('Connected to signaler!', 'success');
+                updateStatus('signalerStatus', 'Connected', 'success');
+                
+                // Register client
+                ws.send(JSON.stringify({
+                    type: 'register',
+                    deviceId: clientId
+                }));
+                log(`Registered as: ${clientId}`);
+            };
+            
+            ws.onmessage = async (event) => {
+                const msg = JSON.parse(event.data);
+                log(`Received: ${msg.type}`);
+                
+                switch (msg.type) {
+                    case 'signaler-id':
+                        log(`Got signaler ID: ${msg.signalerId}`, 'success');
+                        setTimeout(() => initiateWebRTC(), 1000);
+                        break;
+                    case 'answer':
+                        await handleAnswer(msg);
+                        break;
+                    case 'ice':
+                        await handleIceCandidate(msg);
+                        break;
+                }
+            };
+            
+            ws.onclose = () => {
+                log('Signaler connection closed', 'error');
+                updateStatus('signalerStatus', 'Disconnected', 'error');
+            };
+            
+            ws.onerror = (error) => {
+                log('Signaler error: ' + error, 'error');
+                updateStatus('signalerStatus', 'Error', 'error');
+            };
+        }
+        
+        async function initiateWebRTC() {
+            log('Creating WebRTC peer connection...');
+            
+            pc = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            });
+            
+            // Create data channel
+            dataChannel = pc.createDataChannel('data', { ordered: true });
+            
+            dataChannel.onopen = () => {
+                log('Data channel opened!', 'success');
+                updateStatus('dataChannelStatus', 'Open', 'success');
+                document.getElementById('apiTestBtn').disabled = false;
+                document.getElementById('startBtn').textContent = '✅ Connected';
+            };
+            
+            dataChannel.onclose = () => {
+                log('Data channel closed', 'warning');
+                updateStatus('dataChannelStatus', 'Closed', 'warning');
+            };
+            
+            dataChannel.onmessage = (event) => {
+                try {
+                    const response = JSON.parse(event.data);
+                    handleAPIResponse(response);
+                } catch (e) {
+                    log(`Raw message: ${event.data}`);
+                }
+            };
+            
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    ws.send(JSON.stringify({
+                        type: 'ice',
+                        targetDeviceId: document.getElementById('serverDeviceId').value,
+                        ice: event.candidate
+                    }));
+                }
+            };
+            
+            pc.onconnectionstatechange = () => {
+                log(`Connection state: ${pc.connectionState}`);
+                updateStatus('webrtcStatus', `Connection: ${pc.connectionState}`, 
+                    pc.connectionState === 'connected' ? 'success' : 'info');
+            };
+            
+            // Create and send offer
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            
+            log('Sending offer to server...');
+            ws.send(JSON.stringify({
+                type: 'offer',
+                targetDeviceId: document.getElementById('serverDeviceId').value,
+                deviceId: clientId,
+                offer: offer
+            }));
+        }
+        
+        async function handleAnswer(msg) {
+            log('Received answer from server', 'success');
+            await pc.setRemoteDescription(msg.answer);
+        }
+        
+        async function handleIceCandidate(msg) {
+            if (msg.ice) {
+                await pc.addIceCandidate(msg.ice);
+            }
+        }
+        
+        function sendAPIRequest(method, url, expectSuccess = true) {
+            const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            
+            const request = {
+                type: 'request',
+                id: requestId,
+                method: method,
+                url: url,
+                headers: {},
+                body: null
+            };
+            
+            log(`🚀 ${method} ${url}`);
+            dataChannel.send(JSON.stringify(request));
+            
+            // Store expectation for response handling
+            window.pendingRequests = window.pendingRequests || new Map();
+            window.pendingRequests.set(requestId, { method, url, expectSuccess, timestamp: Date.now() });
+        }
+        
+        function handleAPIResponse(response) {
+            if (response.type === 'response' && response.id) {
+                const request = window.pendingRequests?.get(response.id);
+                if (request) {
+                    const duration = Date.now() - request.timestamp;
+                    testStats.completed++;
+                    
+                    if (response.error) {
+                        if (request.expectSuccess) {
+                            log(`❌ ${request.method} ${request.url} - ${response.error.message} (${duration}ms)`, 'error');
+                            testStats.failed++;
+                        } else {
+                            log(`✅ ${request.method} ${request.url} - Expected error: ${response.error.message} (${duration}ms)`, 'success');
+                            testStats.passed++;
+                        }
+                    } else {
+                        log(`✅ ${request.method} ${request.url} - Success (${duration}ms)`, 'success');
+                        testStats.passed++;
+                    }
+                    
+                    updateTestStats();
+                    window.pendingRequests.delete(response.id);
+                }
+            } else if (response.type === 'system') {
+                log(`🔧 System: ${response.message}`, 'info');
+            }
+        }
+        
+        async function runAPITests() {
+            const apiTestBtn = document.getElementById('apiTestBtn');
+            apiTestBtn.disabled = true;
+            apiTestBtn.textContent = '🔄 Testing...';
+            
+            log('🧪 Starting API tests...');
+            
+            // Test 1: Health check
+            sendAPIRequest('GET', '/health');
+            
+            // Test 2: Device ID
+            setTimeout(() => sendAPIRequest('GET', '/device-id'), 500);
+            
+            // Test 3: File listing
+            setTimeout(() => sendAPIRequest('GET', '/files'), 1000);
+            
+            // Test 4: Non-existent file (expect 404)
+            setTimeout(() => sendAPIRequest('GET', '/files/view/nonexistent.txt', false), 1500);
+            
+            // Test 5: Multiple health checks for performance
+            setTimeout(() => {
+                for (let i = 0; i < 5; i++) {
+                    setTimeout(() => sendAPIRequest('GET', '/health'), i * 200);
+                }
+            }, 2000);
+            
+            // Re-enable button after tests
+            setTimeout(() => {
+                apiTestBtn.disabled = false;
+                apiTestBtn.textContent = '🧪 Run API Tests';
+                log('🎯 API tests completed!', 'success');
+            }, 5000);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').textContent = 'Log cleared...\n';
+        }
+    </script>
+</body>
+</html>

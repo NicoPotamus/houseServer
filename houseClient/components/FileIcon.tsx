@@ -12,6 +12,7 @@ export function FileIcon({ type, color = '#000', size = 24 }: FileIconProps) {
   const getIconName = () => {
     switch (type) {
       case 'directory':
+      case 'folder':
         return 'folder.fill';
       case 'image':
         return 'photo.fill';
@@ -26,5 +27,8 @@ export function FileIcon({ type, color = '#000', size = 24 }: FileIconProps) {
     }
   };
 
-  return <IconSymbol name={getIconName()} color={color} size={size} />;
+  // Ensure name prop is safe
+  const iconName = getIconName();
+  
+  return <IconSymbol name={iconName} color={color} size={size} />;
 }

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Browser Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        #logs {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebRTC Browser Connectivity Test</h1>
+    
+    <div id="webrtc-status" class="status"></div>
+    
+    <div>
+        <label for="server-url">Signaler URL:</label>
+        <input type="text" id="server-url" value="ws://localhost:8080" style="width: 200px; margin: 5px;">
+        
+        <label for="device-id">Target Device ID:</label>
+        <input type="text" id="device-id" value="4e746e86-3957-4cac-8dd8-d947bd63a4e0" style="width: 200px; margin: 5px;">
+        
+        <label for="user-id">User ID:</label>
+        <input type="text" id="user-id" value="test-web-client" style="width: 150px; margin: 5px;">
+    </div>
+    
+    <div>
+        <button id="connect-btn" onclick="testConnection()">Connect to Signaler</button>
+        <button id="disconnect-btn" onclick="disconnect()" disabled>Disconnect</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+    
+    <h3>Connection Logs:</h3>
+    <div id="logs"></div>
+
+    <script>
+        let ws = null;
+        let peerConnection = null;
+        let dataChannel = null;
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('logs');
+            logElement.textContent += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').textContent = '';
+        }
+        
+        function updateWebRTCStatus() {
+            const statusElement = document.getElementById('webrtc-status');
+            
+            if (typeof window.RTCPeerConnection !== 'undefined') {
+                statusElement.className = 'status success';
+                statusElement.textContent = '✅ WebRTC is supported in this browser';
+                return true;
+            } else {
+                statusElement.className = 'status error';
+                statusElement.textContent = '❌ WebRTC is not supported in this browser';
+                return false;
+            }
+        }
+        
+        function testConnection() {
+            if (!updateWebRTCStatus()) {
+                log('❌ WebRTC not supported, cannot proceed');
+                return;
+            }
+            
+            const signalerUrl = document.getElementById('server-url').value;
+            const deviceId = document.getElementById('device-id').value;
+            const userId = document.getElementById('user-id').value;
+            
+            log(`🔄 Starting connection test...`);
+            log(`📡 Signaler URL: ${signalerUrl}`);
+            log(`🎯 Target Device ID: ${deviceId}`);
+            log(`👤 User ID: ${userId}`);
+            
+            // Update button states
+            document.getElementById('connect-btn').disabled = true;
+            document.getElementById('disconnect-btn').disabled = false;
+            
+            try {
+                ws = new WebSocket(signalerUrl);
+                
+                ws.onopen = function() {
+                    log('✅ WebSocket connection opened');
+                    
+                    // Register with signaler
+                    const registerMsg = JSON.stringify({
+                        type: 'register',
+                        deviceId: userId
+                    });
+                    log(`📤 Sending registration: ${registerMsg}`);
+                    ws.send(registerMsg);
+                };
+                
+                ws.onmessage = function(event) {
+                    log(`📨 Received: ${event.data}`);
+                    
+                    try {
+                        const msg = JSON.parse(event.data);
+                        
+                        if (msg.type === 'register-success') {
+                            log(`✅ Registration successful, signaler ID: ${msg.signalerId}`);
+                            // Now try to initiate WebRTC connection
+                            createPeerConnection(deviceId);
+                        } else if (msg.type === 'error') {
+                            log(`❌ Signaler error: ${msg.message}`);
+                        }
+                    } catch (e) {
+                        log(`⚠️ Failed to parse message: ${e}`);
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    log(`🔌 WebSocket closed with code ${event.code}: ${event.reason || 'No reason'}`);
+                    document.getElementById('connect-btn').disabled = false;
+                    document.getElementById('disconnect-btn').disabled = true;
+                };
+                
+                ws.onerror = function(error) {
+                    log(`❌ WebSocket error: ${error}`);
+                    document.getElementById('connect-btn').disabled = false;
+                    document.getElementById('disconnect-btn').disabled = true;
+                };
+                
+            } catch (error) {
+                log(`❌ Connection failed: ${error}`);
+                document.getElementById('connect-btn').disabled = false;
+                document.getElementById('disconnect-btn').disabled = true;
+            }
+        }
+        
+        function createPeerConnection(targetDeviceId) {
+            log('🔗 Creating RTCPeerConnection...');
+            
+            try {
+                peerConnection = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' }
+                    ]
+                });
+                
+                peerConnection.onconnectionstatechange = function() {
+                    log(`🔄 Connection state: ${peerConnection.connectionState}`);
+                };
+                
+                peerConnection.onicecandidate = function(event) {
+                    if (event.candidate) {
+                        log(`🧊 ICE candidate generated`);
+                        // Send ICE candidate to signaler
+                        const iceMsg = JSON.stringify({
+                            type: 'ice',
+                            targetDeviceId: targetDeviceId,
+                            ice: event.candidate
+                        });
+                        ws.send(iceMsg);
+                    }
+                };
+                
+                // Create data channel
+                dataChannel = peerConnection.createDataChannel('test', {
+                    ordered: true
+                });
+                
+                dataChannel.onopen = function() {
+                    log('✅ Data channel opened!');
+                };
+                
+                dataChannel.onmessage = function(event) {
+                    log(`📨 Data channel message: ${event.data}`);
+                };
+                
+                // Create and send offer
+                peerConnection.createOffer()
+                    .then(function(offer) {
+                        log('📝 Created offer');
+                        return peerConnection.setLocalDescription(offer);
+                    })
+                    .then(function() {
+                        log('📤 Sending offer to signaler');
+                        const offerMsg = JSON.stringify({
+                            type: 'offer',
+                            targetDeviceId: targetDeviceId,
+                            deviceId: document.getElementById('user-id').value,
+                            offer: peerConnection.localDescription
+                        });
+                        ws.send(offerMsg);
+                    })
+                    .catch(function(error) {
+                        log(`❌ Error creating offer: ${error}`);
+                    });
+                    
+            } catch (error) {
+                log(`❌ Error creating peer connection: ${error}`);
+            }
+        }
+        
+        function disconnect() {
+            log('🔌 Disconnecting...');
+            
+            if (dataChannel) {
+                dataChannel.close();
+                dataChannel = null;
+            }
+            
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            
+            document.getElementById('connect-btn').disabled = false;
+            document.getElementById('disconnect-btn').disabled = true;
+        }
+        
+        // Initialize on page load
+        window.onload = function() {
+            updateWebRTCStatus();
+            log('🚀 WebRTC Browser Test initialized');
+        };
+    </script>
+</body>
+</html>

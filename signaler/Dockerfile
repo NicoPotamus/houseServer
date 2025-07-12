@@ -4,6 +4,9 @@ FROM node:18
 # Set working directory
 WORKDIR /usr/src/app
 
+# Install wget for health checks
+RUN apt-get update && apt-get install -y wget && apt-get clean
+
 # Copy package.json and package-lock.json
 COPY package*.json ./
 

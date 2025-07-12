@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, ActivityIndicator, Pressable, Modal, TextInput, Button, Alert } from 'react-native';
+import { router } from 'expo-router';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
@@ -8,7 +9,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useDevice } from '@/context/DeviceContext';
 import { NetworkInfo } from 'react-native-network-info';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URL, getSignalerUrl } from '../../config/api';
 import { webrtcService } from '@/services/webrtcService';
 
 export default function DevicesScreen() {
@@ -19,6 +20,9 @@ export default function DevicesScreen() {
   const colorScheme = useColorScheme();
   const { user } = useAuth();
   const { setDevice } = useDevice();
+
+  // Get WebRTC status
+  const webrtcStatus = webrtcService.getWebRTCStatus();
 
   // Fetch all device connections for this user on mount
   React.useEffect(() => {
@@ -89,10 +93,39 @@ export default function DevicesScreen() {
 
   const handleConnectToDevice = async (deviceId: string) => {
     try {
-      const SIGNALER_WS_URL = `${API_BASE_URL.replace('http', 'ws')}`;
+      // Convert HTTP URL to WebSocket URL (ws:// or wss://)
+      let SIGNALER_WS_URL = `${API_BASE_URL}`;
+      if (SIGNALER_WS_URL.startsWith('http://')) {
+        SIGNALER_WS_URL = SIGNALER_WS_URL.replace('http://', 'ws://');
+      } else if (SIGNALER_WS_URL.startsWith('https://')) {
+        SIGNALER_WS_URL = SIGNALER_WS_URL.replace('https://', 'wss://');
+      } else {
+        // If no protocol, use ws://
+        SIGNALER_WS_URL = `ws://${SIGNALER_WS_URL}`;
+      }
+      
+      // For development, use our dynamic signaler URL
+      if (__DEV__) {
+        console.log('Development mode detected, using dynamic WebSocket URL');
+        SIGNALER_WS_URL = getSignalerUrl();
+      }
+      
+      console.log(`Using signaler URL: ${SIGNALER_WS_URL}`);
+      
       if (!user) throw new Error('User not logged in');
+      
+      // Set the selected device first
+      setDevice(deviceId);
+      
+      // Connect to the device via WebRTC
       webrtcService.connect(SIGNALER_WS_URL, deviceId, String(user.id));
-      Alert.alert('Connecting', `Attempting WebRTC connection to device: ${deviceId}`);
+      
+      // Navigate to filesystem tab after a brief delay to allow connection to establish
+      setTimeout(() => {
+        router.navigate('/filesystem');
+      }, 500);
+      
+      Alert.alert('Connecting', `Establishing connection to device: ${deviceId}`);
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to connect to device');
     }
@@ -106,6 +139,17 @@ export default function DevicesScreen() {
           <IconSymbol name="paperplane.fill" size={28} color={Colors[colorScheme ?? 'light'].tint} />
         </Pressable>
       </View>
+      
+      {/* WebRTC Status Banner */}
+      {!webrtcStatus.available && (
+        <View style={[styles.statusBanner, { backgroundColor: '#FFF3CD' }]}>
+          <ThemedText style={styles.statusText}>{webrtcStatus.message}</ThemedText>
+          {webrtcStatus.instructions && (
+            <ThemedText style={styles.instructionsText}>{webrtcStatus.instructions}</ThemedText>
+          )}
+        </View>
+      )}
+      
       {/* Show device connections */}
       <View style={{padding: 16}}>
         {connections.length === 0 ? (
@@ -154,6 +198,23 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 20,
     backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  statusBanner: {
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFEAA7',
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  instructionsText: {
+    fontSize: 12,
+    opacity: 0.8,
   },
   errorText: {
     color: Colors.light.error,

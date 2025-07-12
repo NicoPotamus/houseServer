@@ -14,6 +14,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   house-server:
     container_name: house-server
@@ -22,12 +27,15 @@ services:
       dockerfile: dockerfile
     ports:
       - "3000:3000"
-      - "4000:4000"   # <-- Add this line to expose port 4000
+      - "4000:4000"   # <-- Expose port 4000 for onboarding
     volumes:
       - C:\Users\NicoD\Desktop\temp:/usr/src/app/disk
       - ./.env:/usr/src/app/.env
     depends_on:
-      - db
+      signaler:
+        condition: service_healthy
+      db:
+        condition: service_healthy
     networks:
       - internal
     restart: unless-stopped
@@ -37,6 +45,13 @@ services:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
       - CERT_PATH=${CERT_PATH}
       - BASE_URL=${BASE_URL}
+      - SIGNALER_WS_URL=ws://house-signaler:8080
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/files"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   signaler:
     container_name: house-signaler
@@ -53,26 +68,17 @@ services:
       - DB_PASSWORD=postgres
       - DB_NAME=house_db
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - internal
     restart: unless-stopped
-
-  house-client:
-    container_name: house-client
-    build:
-      context: ./houseClient
-      dockerfile: Dockerfile
-    ports:
-      - "8081:8081"
-    environment:
-      - NODE_ENV=development
-      - EXPO_PUBLIC_API_BASE_URL=http://localhost:8080
-    networks:
-      - internal
-    depends_on:
-      - signaler
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
 
 networks:
   internal:

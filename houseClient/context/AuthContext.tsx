@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL } from '../config/api';
 
@@ -29,7 +30,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     (async () => {
       try {
-        const storedUser = await SecureStore.getItemAsync('user');
+        const storedUser = await secureStorage.getItem('user');
         if (storedUser) setUser(JSON.parse(storedUser));
       } catch (e) {
         console.error('SecureStore error:', e);
@@ -51,7 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = await res.json();
         if (data && data.user) {
           setUser(data.user);
-          await SecureStore.setItemAsync('user', JSON.stringify(data.user));
+          await secureStorage.setItem('user', JSON.stringify(data.user));
           return true;
         }
       }
@@ -81,7 +82,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      await fetch('https://pi.niconet.tech/logout', {
+      // Use the API_BASE_URL for consistency
+      await fetch(`${API_BASE_URL}/logout`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -90,7 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setUser(null);
     try {
-      await SecureStore.deleteItemAsync('user');
+      await secureStorage.deleteItem('user');
     } catch (e) {
       console.error('SecureStore delete error:', e);
     }
@@ -107,4 +109,40 @@ export const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
+};
+
+// Create a web-compatible version of SecureStore for development
+const secureStorage = {
+  getItem: async (key: string): Promise<string | null> => {
+    if (Platform.OS === 'web') {
+      // Use localStorage as a fallback on web
+      console.log(`Using localStorage fallback for SecureStore.getItemAsync('${key}')`);
+      return localStorage.getItem(key);
+    } else {
+      // Use actual SecureStore on native platforms
+      return await SecureStore.getItemAsync(key);
+    }
+  },
+  setItem: async (key: string, value: string): Promise<void> => {
+    if (Platform.OS === 'web') {
+      // Use localStorage as a fallback on web
+      console.log(`Using localStorage fallback for SecureStore.setItemAsync('${key}')`);
+      localStorage.setItem(key, value);
+      return Promise.resolve();
+    } else {
+      // Use actual SecureStore on native platforms
+      return await SecureStore.setItemAsync(key, value);
+    }
+  },
+  deleteItem: async (key: string): Promise<void> => {
+    if (Platform.OS === 'web') {
+      // Use localStorage as a fallback on web
+      console.log(`Using localStorage fallback for SecureStore.deleteItemAsync('${key}')`);
+      localStorage.removeItem(key);
+      return Promise.resolve();
+    } else {
+      // Use actual SecureStore on native platforms
+      return await SecureStore.deleteItemAsync(key);
+    }
+  }
 };
